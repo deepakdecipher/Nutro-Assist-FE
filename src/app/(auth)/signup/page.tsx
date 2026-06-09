@@ -1,62 +1,84 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 
-export default function SignupPage() {
+function SignupContent() {
   const router = useRouter();
-  const [step, setStep] = useState(1);
-  const [form, setForm] = useState({ userFullName: "", userName: "", email: "", password: "", confirmPassword: "" });
+  const searchParams = useSearchParams();
+
+  // Step 1 = email + password form  |  Step 2 = OTP verification
+  const [step, setStep] = useState<1 | 2>(1);
+  const [redirectMsg, setRedirectMsg] = useState("");
+  const [email, setEmail] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+
+  useEffect(() => {
+    const hint = searchParams.get("hint");
+    if (hint) {
+      setEmail(decodeURIComponent(hint));
+      setRedirectMsg("User not found. Please register to create your account.");
+    }
+  }, [searchParams]);
   const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
-  const [resendCooldown, setResendCooldown] = useState(0);
   const [error, setError] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // 5-minute countdown (300 s)
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const otp = otpDigits.join("");
 
-  function startCooldown() {
-    setResendCooldown(60);
-    if (cooldownRef.current) clearInterval(cooldownRef.current);
-    cooldownRef.current = setInterval(() => {
-      setResendCooldown(prev => {
-        if (prev <= 1) { clearInterval(cooldownRef.current!); return 0; }
+  function startTimer(seconds = 300) {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setSecondsLeft(seconds);
+    timerRef.current = setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (prev <= 1) { clearInterval(timerRef.current!); return 0; }
         return prev - 1;
       });
     }, 1000);
   }
 
-  function handleNext(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-    if (!form.userFullName.trim() || !form.userName.trim()) { setError("Please fill in all fields."); return; }
-    setStep(2);
+  function formatTime(s: number) {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec.toString().padStart(2, "0")}`;
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (form.password !== form.confirmPassword) { setError("Passwords do not match."); return; }
+    if (!firstName.trim()) { setError("First name is required."); return; }
+
     setLoading(true);
     try {
-      const { confirmPassword, ...payload } = form;
-      void confirmPassword;
-      // Sign-up auto-generates and sends OTP — move to step 3 on success
-      await api.post("/userApi/sign-up", { ...payload, role: [{ roleName: "USER" }] });
-      // generate-otp may return 500 for unauthenticated callers (library @PreAuthorize);
-      // OTP is already sent by sign-up so we swallow the error and proceed
-      try {
-        await api.post(`/userApi/generate-otp/${encodeURIComponent(form.email)}`, {});
-      } catch {
-        // OTP already dispatched by sign-up — ignore
-      }
-      startCooldown();
-      setStep(3);
+      const prefix = email.split("@")[0].replace(/[^a-zA-Z0-9]/g, "");
+      const userName = prefix + Math.floor(1000 + Math.random() * 9000);
+      // Random password — user logs in via OTP, never needs this
+      const autoPassword = crypto.randomUUID().replace(/-/g, "") + "Aa1!";
+
+      await api.post("/userApi/sign-up", {
+        userFullName: `${firstName.trim()} ${lastName.trim()}`.trim(),
+        userName,
+        email,
+        password: autoPassword,
+        role: [{ roleName: "USER" }],
+      });
+
+      setSuccessMsg("OTP sent successfully! Check your inbox.");
+      setOtpDigits(["", "", "", "", "", ""]);
+      startTimer(300);
+      setStep(2);
+      setTimeout(() => otpRefs.current[0]?.focus(), 100);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Signup failed");
+      setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -68,7 +90,8 @@ export default function SignupPage() {
     if (otp.length < 6) { setError("Please enter the 6-digit OTP."); return; }
     setLoading(true);
     try {
-      await api.post(`/userApi/verify-otp/${otp}`, {});
+      await api.post(`/userApi/verify-otp/${otp}?emailId=${encodeURIComponent(email)}`, {});
+      if (timerRef.current) clearInterval(timerRef.current);
       router.push("/login?verified=1");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Invalid OTP. Please try again.");
@@ -78,15 +101,15 @@ export default function SignupPage() {
   }
 
   async function handleResendOtp() {
-    if (resendCooldown > 0) return;
+    if (secondsLeft > 0) return;
     setError("");
+    setSuccessMsg("");
     try {
-      await api.post(`/userApi/generate-otp/${encodeURIComponent(form.email)}`, {});
-      startCooldown();
-    } catch {
-      // generate-otp requires authentication on resend; show a hint instead
-      setError("Could not resend OTP. Please check your email for the code sent during registration.");
-      startCooldown();
+      await api.post(`/userApi/generate-otp/${encodeURIComponent(email)}`, {});
+      setSuccessMsg("OTP resent successfully!");
+      startTimer(300);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Could not resend OTP. Please try again.");
     }
   }
 
@@ -114,18 +137,12 @@ export default function SignupPage() {
     otpRefs.current[Math.min(text.length, 5)]?.focus();
   }
 
-  const leftSteps = [
-    { n: 1, label: "Personal details",    done: step >= 1 },
-    { n: 2, label: "Account credentials", done: step >= 2 },
-    { n: 3, label: "Verify your email",   done: step >= 3 },
-  ];
-
   return (
     <div className="flex h-screen overflow-hidden">
       {/* ── Left gradient panel ── */}
       <div className="hidden lg:flex flex-col justify-between w-[46%] relative overflow-hidden p-12"
         style={{ background: "linear-gradient(145deg, #1e1b4b 0%, #3730a3 30%, #6d28d9 65%, #7c3aed 100%)" }}>
-        <div className="anim-float   absolute top-0 right-0 w-80 h-80 rounded-full opacity-20 -translate-y-1/2 translate-x-1/3"
+        <div className="anim-float absolute top-0 right-0 w-80 h-80 rounded-full opacity-20 -translate-y-1/2 translate-x-1/3"
           style={{ background: "radial-gradient(circle, #818cf8, transparent)" }} />
         <div className="anim-float-2 absolute bottom-0 left-0 w-64 h-64 rounded-full opacity-15 translate-y-1/3 -translate-x-1/4"
           style={{ background: "radial-gradient(circle, #a78bfa, transparent)", animationDelay: "1s" }} />
@@ -148,27 +165,22 @@ export default function SignupPage() {
 
           <div className="anim-slide-left delay-200 rounded-2xl p-6"
             style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)" }}>
-            <p className="text-indigo-300 text-xs font-semibold uppercase tracking-widest mb-5">Setup progress</p>
+            <p className="text-indigo-300 text-xs font-semibold uppercase tracking-widest mb-5">How it works</p>
             <div className="space-y-4">
-              {leftSteps.map((s, i) => (
+              {[
+                { n: "1", label: "Enter your name & email", active: step === 1 },
+                { n: "2", label: "Verify with a 6-digit OTP",   active: step === 2 },
+                { n: "3", label: "Start your nutrition journey", active: false },
+              ].map((s) => (
                 <div key={s.n} className="flex items-center gap-3">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 transition-all duration-500 ${
-                    s.done ? "text-white shadow-lg shadow-violet-400/40" : "text-white/40"
+                    s.active ? "text-white shadow-lg shadow-violet-400/40" : "text-white/40"
                   }`}
-                    style={s.done
-                      ? { background: "linear-gradient(135deg, rgba(255,255,255,0.3), rgba(255,255,255,0.15))", border: "1px solid rgba(255,255,255,0.3)" }
+                    style={s.active
+                      ? { background: "linear-gradient(135deg,rgba(255,255,255,0.3),rgba(255,255,255,0.15))", border: "1px solid rgba(255,255,255,0.3)" }
                       : { background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.1)" }
-                    }>
-                    {s.done && s.n < step ? (
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    ) : s.n}
-                  </div>
-                  <div className="flex-1">
-                    <span className={`text-sm font-medium transition-all duration-300 ${s.done ? "text-white" : "text-white/40"}`}>{s.label}</span>
-                  </div>
-                  {i < 2 && <div className={`w-2 h-2 rounded-full transition-all ${s.done && step > s.n ? "bg-violet-300" : "bg-white/20"}`} />}
+                    }>{s.n}</div>
+                  <span className={`text-sm font-medium transition-colors duration-300 ${s.active ? "text-white" : "text-white/40"}`}>{s.label}</span>
                 </div>
               ))}
             </div>
@@ -193,27 +205,50 @@ export default function SignupPage() {
         </div>
 
         <div className="w-full max-w-sm">
-          {/* Step dots */}
+          {/* Step indicator */}
           <div className="anim-fade-in flex items-center gap-2 mb-6">
-            {[1, 2, 3].map((s) => (
+            {[1, 2].map((s) => (
               <div key={s} className={`h-1.5 rounded-full transition-all duration-500 ${s === step ? "w-10" : s < step ? "w-5" : "w-5 bg-gray-200"}`}
-                style={s <= step ? { background: "linear-gradient(90deg, #7c3aed, #a855f7)" } : {}} />
+                style={s <= step ? { background: "linear-gradient(90deg,#7c3aed,#a855f7)" } : {}} />
             ))}
-            <span className="ml-2 text-xs text-gray-400 font-medium">Step {step} / 3</span>
+            <span className="ml-2 text-xs text-gray-400 font-medium">Step {step} / 2</span>
           </div>
 
           <div className="anim-fade-in-up">
             <p className="text-xs font-semibold text-violet-500 uppercase tracking-widest mb-2">Create Account</p>
             <h2 className="text-3xl font-extrabold text-gray-900 mb-1">
-              {step === 1 ? "Tell us about you" : step === 2 ? "Set your credentials" : "Verify your email"}
+              {step === 1 ? "Get started" : "Verify your email"}
             </h2>
             <p className="text-sm text-gray-400 mb-8">
-              {step === 1 ? "We'll personalize your experience"
-                : step === 2 ? "Choose a secure password"
-                : `We sent a 6-digit code to ${form.email}`}
+              {step === 1
+                ? "Enter your name and email to get started"
+                : `We sent a 6-digit code to ${email}`}
             </p>
           </div>
 
+          {/* Redirect from login banner */}
+          {redirectMsg && (
+            <div className="anim-scale-in mb-6 flex items-start gap-3 rounded-2xl bg-amber-50 border border-amber-100 px-4 py-3.5">
+              <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <span className="text-amber-600 text-xs font-bold">i</span>
+              </div>
+              <span className="text-sm text-amber-700">{redirectMsg}</span>
+            </div>
+          )}
+
+          {/* Success banner */}
+          {successMsg && (
+            <div className="anim-scale-in mb-6 flex items-center gap-3 rounded-2xl bg-green-50 border border-green-100 px-4 py-3.5">
+              <div className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                <svg className="w-3 h-3 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <span className="text-sm text-green-700 font-medium">{successMsg}</span>
+            </div>
+          )}
+
+          {/* Error banner */}
           {error && (
             <div className="anim-scale-in mb-6 flex items-start gap-3 rounded-2xl bg-red-50 border border-red-100 px-4 py-3.5">
               <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -223,74 +258,53 @@ export default function SignupPage() {
             </div>
           )}
 
-          {/* Step 1 */}
+          {/* ── Step 1: Name + Email ── */}
           {step === 1 && (
-            <form onSubmit={handleNext} className="space-y-5">
-              <div className="anim-fade-in-up delay-100">
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">Full Name</label>
-                <input type="text" required value={form.userFullName}
-                  onChange={(e) => setForm({ ...form, userFullName: e.target.value })}
-                  className="input-field" placeholder="John Doe" />
-              </div>
-              <div className="anim-fade-in-up delay-150">
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">Username</label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">@</span>
-                  <input type="text" required value={form.userName}
-                    onChange={(e) => setForm({ ...form, userName: e.target.value })}
-                    className="input-field pl-8" placeholder="johndoe" />
+            <form onSubmit={handleRegister} className="space-y-5">
+              <div className="anim-fade-in-up delay-100 flex gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">First name</label>
+                  <input type="text" required value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    className="input-field" placeholder="John" autoFocus />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">Last name</label>
+                  <input type="text" value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    className="input-field" placeholder="Doe" />
                 </div>
               </div>
-              <div className="anim-fade-in-up delay-200 pt-1">
-                <button type="submit" className="w-full py-3.5 rounded-2xl text-sm font-bold text-white btn-gradient shadow-lg shadow-violet-200">
-                  Continue →
-                </button>
-              </div>
-            </form>
-          )}
-
-          {/* Step 2 */}
-          {step === 2 && (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="anim-fade-in-up delay-50">
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">Email</label>
-                <input type="email" required value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  className="input-field" placeholder="john@example.com" />
-              </div>
-              <div className="anim-fade-in-up delay-100">
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">Password</label>
-                <input type="password" required minLength={6} value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  className="input-field" placeholder="Min. 6 characters" />
-              </div>
               <div className="anim-fade-in-up delay-150">
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">Confirm Password</label>
-                <input type="password" required value={form.confirmPassword}
-                  onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
-                  className="input-field" placeholder="••••••••" />
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">Email address</label>
+                <input type="email" required value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="input-field" placeholder="you@example.com" />
               </div>
-              <div className="anim-fade-in-up delay-200 flex gap-3 pt-1">
-                <button type="button" onClick={() => { setStep(1); setError(""); }}
-                  className="flex-1 py-3.5 rounded-2xl border-2 border-gray-200 bg-white text-sm font-bold text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition">
-                  ← Back
-                </button>
+              <div className="anim-fade-in-up delay-200 pt-1">
                 <button type="submit" disabled={loading}
-                  className="flex-[2] py-3.5 rounded-2xl text-sm font-bold text-white btn-gradient disabled:opacity-60 shadow-lg shadow-violet-200">
+                  className="w-full py-3.5 rounded-2xl text-sm font-bold text-white btn-gradient disabled:opacity-60 disabled:cursor-not-allowed shadow-lg shadow-violet-200">
                   {loading ? (
                     <span className="flex items-center justify-center gap-2">
                       <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Creating…
+                      Sending OTP…
                     </span>
-                  ) : "Create Account"}
+                  ) : "Send OTP →"}
                 </button>
               </div>
             </form>
           )}
 
-          {/* Step 3 — OTP */}
-          {step === 3 && (
+          {/* ── Step 2: OTP verification ── */}
+          {step === 2 && (
             <form onSubmit={handleVerifyOtp} className="space-y-6">
+              {/* 5-min countdown */}
+              <div className="anim-fade-in flex items-center justify-center gap-2">
+                <div className={`text-sm font-semibold px-3 py-1 rounded-full ${secondsLeft > 0 ? "bg-violet-50 text-violet-600" : "bg-red-50 text-red-500"}`}>
+                  {secondsLeft > 0 ? `⏱ OTP expires in ${formatTime(secondsLeft)}` : "⚠ OTP expired"}
+                </div>
+              </div>
+
               {/* 6-box OTP input */}
               <div className="anim-fade-in-up delay-100">
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-widest mb-4">Enter OTP</label>
@@ -315,8 +329,8 @@ export default function SignupPage() {
               <div className="anim-fade-in-up delay-150 text-center">
                 <p className="text-sm text-gray-400">
                   Didn&apos;t receive it?{" "}
-                  {resendCooldown > 0 ? (
-                    <span className="text-gray-400 font-medium">Resend in {resendCooldown}s</span>
+                  {secondsLeft > 0 ? (
+                    <span className="text-gray-400 font-medium">Resend available in {formatTime(secondsLeft)}</span>
                   ) : (
                     <button type="button" onClick={handleResendOtp}
                       className="text-violet-600 font-semibold hover:text-violet-700">
@@ -337,6 +351,13 @@ export default function SignupPage() {
                   ) : "Verify & Continue →"}
                 </button>
               </div>
+
+              <div className="text-center">
+                <button type="button" onClick={() => { setStep(1); setError(""); setSuccessMsg(""); if (timerRef.current) clearInterval(timerRef.current); }}
+                  className="text-xs text-gray-400 hover:text-gray-600">
+                  ← Change details
+                </button>
+              </div>
             </form>
           )}
 
@@ -347,5 +368,13 @@ export default function SignupPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense>
+      <SignupContent />
+    </Suspense>
   );
 }
