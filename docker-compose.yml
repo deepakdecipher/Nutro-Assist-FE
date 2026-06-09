@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  nutro-assist-fe:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BACKEND_URL: ${BACKEND_URL:-https://nutro-assist.onrender.com}
+    image: nutro-assist-fe:latest
+    container_name: nutro-assist-fe
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      BACKEND_URL: ${BACKEND_URL:-https://nutro-assist.onrender.com}
