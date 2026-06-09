@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/backend/:path*",
-        destination: "http://localhost:8081/:path*",
+        destination: `${process.env.BACKEND_URL || "https://nutro-assist.onrender.com"}/:path*`,
       },
     ];
   },
