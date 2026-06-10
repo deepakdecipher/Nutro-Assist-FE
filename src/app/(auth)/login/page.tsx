@@ -5,31 +5,67 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { api, saveAuth } from "@/lib/api";
+import { firebaseAuth } from "@/lib/firebase";
+import {
+  ConfirmationResult,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+} from "firebase/auth";
 
-type Step = "email" | "otp";
+type Step = "identifier" | "otp";
+type InputMode = "email" | "phone";
+
+/** Detects whether the input looks like an E.164 / local phone number vs. an email. */
+function detectInputMode(value: string): InputMode {
+  const trimmed = value.trim();
+  // Phone: starts with + followed by digits, or is purely digits (≥ 7)
+  if (/^[+]?\d[\d\s\-()\\.]{6,}$/.test(trimmed)) return "phone";
+  return "email";
+}
 
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [step, setStep] = useState<Step>("email");
-  const [email, setEmail] = useState("");
+  const [step, setStep] = useState<Step>("identifier");
+  const [identifier, setIdentifier] = useState(""); // email or phone
+  const [inputMode, setInputMode] = useState<InputMode>("email");
   const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [verified, setVerified] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // 5-minute timer
+  // 5-minute countdown
   const [secondsLeft, setSecondsLeft] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  // Firebase phone auth refs
+  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+  const confirmationResultRef = useRef<ConfirmationResult | null>(null);
 
   const otp = otpDigits.join("");
 
   useEffect(() => {
     if (searchParams.get("verified") === "1") setVerified(true);
   }, [searchParams]);
+
+  // Initialise invisible reCAPTCHA once (needed for Firebase phone auth)
+  useEffect(() => {
+    if (!recaptchaVerifierRef.current) {
+      recaptchaVerifierRef.current = new RecaptchaVerifier(
+        firebaseAuth,
+        "recaptcha-container",
+        { size: "invisible" }
+      );
+    }
+    return () => {
+      // Cleanup on unmount so it doesn't linger across HMR reloads
+      recaptchaVerifierRef.current?.clear();
+      recaptchaVerifierRef.current = null;
+    };
+  }, []);
 
   function startTimer(s = 300) {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -48,14 +84,24 @@ function LoginContent() {
     return `${m}:${sec.toString().padStart(2, "0")}`;
   }
 
-  // ── Step 1: send OTP to email ─────────────────────────────────────────────
+  function handleIdentifierChange(value: string) {
+    setIdentifier(value);
+    setInputMode(detectInputMode(value));
+  }
+
+  // ── Step 1: send OTP (email → Brevo, phone → Firebase SMS) ───────────────
   async function handleSendOtp(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
+
     try {
-      await api.post(`/userApi/unified/generate-otp/${encodeURIComponent(email)}`, {});
-      setSuccessMsg("OTP sent! Check your inbox.");
+      if (inputMode === "phone") {
+        await sendFirebasePhoneOtp();
+      } else {
+        await sendEmailOtp();
+      }
+
       setOtpDigits(["", "", "", "", "", ""]);
       startTimer(300);
       setStep("otp");
@@ -67,17 +113,48 @@ function LoginContent() {
     }
   }
 
+  async function sendEmailOtp() {
+    await api.post(`/userApi/unified/generate-otp/${encodeURIComponent(identifier.trim().toLowerCase())}`, {});
+    setSuccessMsg("OTP sent! Check your inbox.");
+  }
+
+  async function sendFirebasePhoneOtp() {
+    let phone = identifier.trim().replace(/[\s\-().]/g, "");
+    // Auto-prepend +91 for plain 10-digit Indian mobile numbers
+    if (/^\d{10}$/.test(phone)) {
+      phone = "+91" + phone;
+    } else if (!phone.startsWith("+")) {
+      throw new Error("Enter a 10-digit number (e.g. 9876543210) or include the country code (e.g. +91 9876543210).");
+    }
+    if (!recaptchaVerifierRef.current) {
+      recaptchaVerifierRef.current = new RecaptchaVerifier(
+        firebaseAuth,
+        "recaptcha-container",
+        { size: "invisible" }
+      );
+    }
+    confirmationResultRef.current = await signInWithPhoneNumber(
+      firebaseAuth,
+      phone,
+      recaptchaVerifierRef.current
+    );
+    setSuccessMsg("SMS sent! Enter the 6-digit code.");
+  }
+
   // ── Step 2: verify OTP and login ──────────────────────────────────────────
   async function handleVerifyAndLogin(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     if (otp.length < 6) { setError("Please enter the 6-digit OTP."); return; }
     setLoading(true);
+
     try {
-      const data = await api.post<{ token: string; refreshToken: string; roles: string[] }>(
-        "/userApi/unified/login-otp", { email, otp }
-      );
-      saveAuth(data.token, data.refreshToken);
+      if (inputMode === "phone") {
+        await verifyFirebaseOtpAndLogin();
+      } else {
+        await verifyEmailOtpAndLogin();
+      }
+
       if (timerRef.current) clearInterval(timerRef.current);
       router.push("/dashboard");
     } catch (err: unknown) {
@@ -87,16 +164,44 @@ function LoginContent() {
     }
   }
 
+  async function verifyEmailOtpAndLogin() {
+    const email = identifier.trim().toLowerCase();
+    const data = await api.post<{ token: string; refreshToken: string; roles: string[] }>(
+      "/userApi/unified/login-otp",
+      { email, otp }
+    );
+    saveAuth(data.token, data.refreshToken);
+  }
+
+  async function verifyFirebaseOtpAndLogin() {
+    if (!confirmationResultRef.current) {
+      throw new Error("Session expired — please go back and resend the OTP.");
+    }
+    const credential = await confirmationResultRef.current.confirm(otp);
+    const idToken = await credential.user.getIdToken();
+    const data = await api.post<{ token: string; refreshToken: string; roles: string[] }>(
+      "/userApi/unified/login-phone",
+      { idToken }
+    );
+    saveAuth(data.token, data.refreshToken);
+  }
+
   async function handleResendOtp() {
     if (secondsLeft > 0) return;
     setError("");
     setSuccessMsg("");
+    setLoading(true);
     try {
-      await api.post(`/userApi/unified/generate-otp/${encodeURIComponent(email)}`, {});
-      setSuccessMsg("OTP resent successfully!");
+      if (inputMode === "phone") {
+        await sendFirebasePhoneOtp();
+      } else {
+        await sendEmailOtp();
+      }
       startTimer(300);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Could not resend OTP.");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -123,6 +228,14 @@ function LoginContent() {
     setOtpDigits(next);
     otpRefs.current[Math.min(text.length, 5)]?.focus();
   }
+
+  const identifierLabel = "Email address or phone number";
+  const identifierPlaceholder = inputMode === "phone"
+    ? "+91 9876543210 (include country code)"
+    : "you@example.com";
+  const otpDescription = inputMode === "phone"
+    ? `Enter the 6-digit code sent via SMS to ${identifier}`
+    : `Enter the 6-digit code sent to ${identifier}`;
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -216,21 +329,21 @@ function LoginContent() {
             </div>
             <h2 className="text-3xl font-extrabold text-gray-900 mb-2 text-center">Welcome to Nutro Assist</h2>
             <p className="text-sm text-gray-400 mb-8">
-              {step === "email"
+              {step === "identifier"
                 ? "Create your account or sign in to access your personalized nutrition journey."
-                : `Enter the 6-digit code sent to ${email}`}
+                : otpDescription}
             </p>
           </div>
 
           {/* Verified banner */}
-          {verified && step === "email" && (
+          {verified && step === "identifier" && (
             <div className="anim-scale-in mb-6 flex items-center gap-3 rounded-2xl bg-green-50 border border-green-100 px-4 py-3.5">
               <div className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
                 <svg className="w-3 h-3 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <span className="text-sm text-green-700 font-medium">Email verified! Enter your email to sign in.</span>
+              <span className="text-sm text-green-700 font-medium">Verified! Enter your email or phone to sign in.</span>
             </div>
           )}
 
@@ -256,14 +369,28 @@ function LoginContent() {
             </div>
           )}
 
-          {/* ── Email step ── */}
-          {step === "email" && (
+          {/* ── Identifier step ── */}
+          {step === "identifier" && (
             <form onSubmit={handleSendOtp} className="space-y-5">
               <div className="anim-fade-in-up delay-100">
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">Email address</label>
-                <input type="email" required value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="input-field" placeholder="you@example.com" autoFocus />
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">
+                  {identifierLabel}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={identifier}
+                  onChange={(e) => handleIdentifierChange(e.target.value)}
+                  className="input-field"
+                  placeholder="Email address or phone number"
+                  autoFocus
+                />
+                {/* Contextual hint */}
+                <p className="mt-1.5 text-xs text-gray-400">
+                  {inputMode === "phone"
+                    ? "Enter 10-digit number — +91 added automatically"
+                    : "Use email or start typing a phone number"}
+                </p>
               </div>
               <div className="anim-fade-in-up delay-150 pt-1">
                 <button type="submit" disabled={loading}
@@ -311,7 +438,8 @@ function LoginContent() {
                   {secondsLeft > 0 ? (
                     <span className="text-gray-400 font-medium">Resend in {formatTime(secondsLeft)}</span>
                   ) : (
-                    <button type="button" onClick={handleResendOtp} className="text-violet-600 font-semibold hover:text-violet-700">
+                    <button type="button" onClick={handleResendOtp} disabled={loading}
+                      className="text-violet-600 font-semibold hover:text-violet-700 disabled:opacity-50">
                       Resend OTP
                     </button>
                   )}
@@ -330,15 +458,21 @@ function LoginContent() {
 
               <div className="text-center">
                 <button type="button"
-                  onClick={() => { setStep("email"); setError(""); setSuccessMsg(""); if (timerRef.current) clearInterval(timerRef.current); }}
+                  onClick={() => {
+                    setStep("identifier");
+                    setError("");
+                    setSuccessMsg("");
+                    confirmationResultRef.current = null;
+                    if (timerRef.current) clearInterval(timerRef.current);
+                  }}
                   className="text-xs text-gray-400 hover:text-gray-600">
-                  ← Change email
+                  ← Change {inputMode === "phone" ? "phone number" : "email"}
                 </button>
               </div>
             </form>
           )}
 
-          {/* Admin login link — clean, minimal, at bottom */}
+          {/* Admin login link */}
           <div className="mt-8 pt-6 border-t border-gray-100 text-center">
             <Link href="/admin/login"
               className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors font-medium">
@@ -350,6 +484,9 @@ function LoginContent() {
           </div>
         </div>
       </div>
+
+      {/* Invisible reCAPTCHA container required by Firebase phone auth */}
+      <div id="recaptcha-container" />
     </div>
   );
 }

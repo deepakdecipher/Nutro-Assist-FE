@@ -2,7 +2,7 @@ const BASE = "/backend";
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("token");
+  return localStorage.getItem("token") ?? localStorage.getItem("adminToken");
 }
 
 function getAdminToken(): string | null {
@@ -65,7 +65,8 @@ export function clearAuth() {
 }
 
 export function isAuthenticated(): boolean {
-  return !!getToken();
+  if (typeof window === "undefined") return false;
+  return !!(localStorage.getItem("token") || localStorage.getItem("adminToken"));
 }
 
 // ── Admin auth ────────────────────────────────────────────────────────────
@@ -73,6 +74,9 @@ export function isAuthenticated(): boolean {
 export function saveAdminAuth(token: string, refreshToken: string) {
   localStorage.setItem("adminToken", token);
   localStorage.setItem("adminRefreshToken", refreshToken);
+  // Mirror into the regular token slot so admin can view the app without a separate login
+  localStorage.setItem("token", token);
+  localStorage.setItem("refreshToken", refreshToken);
 }
 
 export function clearAdminAuth() {
