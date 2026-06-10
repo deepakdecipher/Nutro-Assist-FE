@@ -28,10 +28,16 @@ async function request<T>(
     ? await res.json()
     : await res.text();
   if (!res.ok) {
+    const fallback =
+      res.status === 401
+        ? "Unauthorized. Please log in again."
+        : res.status === 403
+          ? "Access denied."
+          : "Request failed";
     const msg =
       typeof data === "object"
-        ? data.message || data.error || "Request failed"
-        : (data as string) || "Request failed";
+        ? data.message || data.error || fallback
+        : (data as string) || fallback;
     throw new Error(msg);
   }
   return data as T;
@@ -72,8 +78,22 @@ export function saveAdminAuth(token: string, refreshToken: string) {
 export function clearAdminAuth() {
   localStorage.removeItem("adminToken");
   localStorage.removeItem("adminRefreshToken");
+  localStorage.removeItem("adminRoles");
 }
 
 export function isAdminAuthenticated(): boolean {
   return !!getAdminToken();
+}
+
+export function getSavedAdminRoles(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(localStorage.getItem("adminRoles") ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
+export function saveAdminRoles(roles: string[]) {
+  localStorage.setItem("adminRoles", JSON.stringify(roles));
 }

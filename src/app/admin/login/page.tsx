@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { api, saveAdminAuth } from "@/lib/api";
+import { api, saveAdminAuth, saveAdminRoles } from "@/lib/api";
 
 const ADMIN_ROLES = ["ADMIN", "SUPER_ADMIN"];
 
@@ -28,6 +28,7 @@ export default function AdminLoginPage() {
         return;
       }
       saveAdminAuth(data.token, data.refreshToken);
+      saveAdminRoles(data.roles ?? []);
       router.push("/admin/dashboard");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Login failed";

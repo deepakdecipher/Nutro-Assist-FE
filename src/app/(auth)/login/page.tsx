@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { api, saveAuth } from "@/lib/api";
 
 type Step = "email" | "otp";
@@ -53,19 +54,14 @@ function LoginContent() {
     setError("");
     setLoading(true);
     try {
-      await api.post(`/userApi/generate-otp/${encodeURIComponent(email)}`, {});
+      await api.post(`/userApi/unified/generate-otp/${encodeURIComponent(email)}`, {});
       setSuccessMsg("OTP sent! Check your inbox.");
       setOtpDigits(["", "", "", "", "", ""]);
       startTimer(300);
       setStep("otp");
       setTimeout(() => otpRefs.current[0]?.focus(), 100);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed to send OTP";
-      if (msg.toLowerCase().includes("not registered") || msg.toLowerCase().includes("not found")) {
-        router.push(`/signup?hint=${encodeURIComponent(email)}`);
-      } else {
-        setError(msg);
-      }
+      setError(err instanceof Error ? err.message : "Unable to send OTP. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -79,13 +75,13 @@ function LoginContent() {
     setLoading(true);
     try {
       const data = await api.post<{ token: string; refreshToken: string; roles: string[] }>(
-        "/userApi/login-otp", { email, otp }
+        "/userApi/unified/login-otp", { email, otp }
       );
       saveAuth(data.token, data.refreshToken);
       if (timerRef.current) clearInterval(timerRef.current);
       router.push("/dashboard");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Invalid OTP. Please try again.");
+      setError(err instanceof Error ? err.message : "Unable to verify OTP. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -96,7 +92,7 @@ function LoginContent() {
     setError("");
     setSuccessMsg("");
     try {
-      await api.post(`/userApi/generate-otp/${encodeURIComponent(email)}`, {});
+      await api.post(`/userApi/unified/generate-otp/${encodeURIComponent(email)}`, {});
       setSuccessMsg("OTP resent successfully!");
       startTimer(300);
     } catch (err: unknown) {
@@ -208,11 +204,20 @@ function LoginContent() {
 
         <div className="w-full max-w-sm">
           <div className="anim-fade-in-up">
-            <p className="text-xs font-semibold text-violet-500 uppercase tracking-widest mb-2">Sign In</p>
-            <h2 className="text-3xl font-extrabold text-gray-900 mb-1">Welcome back 👋</h2>
+            <div className="mb-7 flex justify-center">
+              <Image
+                src="/nutro-assist-logo.svg"
+                alt="Nutro Assist"
+                width={176}
+                height={99}
+                priority
+                className="h-auto w-44"
+              />
+            </div>
+            <h2 className="text-3xl font-extrabold text-gray-900 mb-2 text-center">Welcome to Nutro Assist</h2>
             <p className="text-sm text-gray-400 mb-8">
               {step === "email"
-                ? "Enter your email to receive a one-time password"
+                ? "Create your account or sign in to access your personalized nutrition journey."
                 : `Enter the 6-digit code sent to ${email}`}
             </p>
           </div>
@@ -318,9 +323,9 @@ function LoginContent() {
                 {loading ? (
                   <span className="flex items-center justify-center gap-2">
                     <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Signing in…
+                    Verifying…
                   </span>
-                ) : "Verify & Sign In →"}
+                ) : "Verify & Continue →"}
               </button>
 
               <div className="text-center">
@@ -333,16 +338,10 @@ function LoginContent() {
             </form>
           )}
 
-          <p className="anim-fade-in delay-400 mt-8 text-center text-sm text-gray-400">
-            Don&apos;t have an account?{" "}
-            <Link href="/signup" className="font-bold text-violet-600 hover:text-violet-700">Create one free</Link>
-          </p>
-
           {/* Admin login link — clean, minimal, at bottom */}
           <div className="mt-8 pt-6 border-t border-gray-100 text-center">
             <Link href="/admin/login"
-              className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors font-medium">
-              <span>🔐</span>
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors font-medium">
               Login as Administrator
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />

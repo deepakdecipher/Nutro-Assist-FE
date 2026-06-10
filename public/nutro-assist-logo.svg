@@ -1,0 +1,16 @@
+<svg width="320" height="180" viewBox="0 0 320 180" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Nutro Assist logo</title>
+  <desc id="desc">Stylized NA monogram with a green leaf and Nutro Assist wordmark.</desc>
+  <rect width="320" height="180" rx="24" fill="white"/>
+  <path d="M43 40C52 40 59 43 65 50L135 133V58C135 46 143 40 158 40H170V145H148C138 145 130 141 124 134L55 52V127C55 139 47 145 32 145H20V40H43Z" fill="#082A52"/>
+  <path d="M223 36L292 145H264L248 119H194L178 145H150L219 36H223ZM207 98H235L221 74L207 98Z" fill="#16A34A"/>
+  <path d="M130 131C131 93 154 70 204 65C190 92 170 111 137 122C152 104 170 91 198 80C162 87 141 106 130 131Z" fill="url(#leaf)"/>
+  <path d="M136 121C151 106 169 94 197 82" stroke="white" stroke-width="4" stroke-linecap="round"/>
+  <text x="160" y="166" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" letter-spacing="9" fill="#082A52">NUTRO <tspan fill="#16A34A">ASSIST</tspan></text>
+  <defs>
+    <linearGradient id="leaf" x1="129" y1="131" x2="207" y2="65" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#059669"/>
+      <stop offset="1" stop-color="#65A30D"/>
+    </linearGradient>
+  </defs>
+</svg>
