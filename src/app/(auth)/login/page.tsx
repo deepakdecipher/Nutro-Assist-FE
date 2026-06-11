@@ -156,7 +156,12 @@ function LoginContent() {
       }
 
       if (timerRef.current) clearInterval(timerRef.current);
-      router.push("/dashboard");
+      try {
+        const status = await api.get<{ completed: boolean; dailyCalorieTarget: number }>("/api/assessments/status");
+        router.push(status.completed ? "/dashboard" : "/assessments");
+      } catch {
+        router.push("/dashboard");
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Unable to verify OTP. Please try again.");
     } finally {

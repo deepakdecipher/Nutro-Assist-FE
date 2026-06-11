@@ -5,12 +5,12 @@ import { useRouter } from "next/navigation";
 import { isAuthenticated, api } from "@/lib/api";
 import { Sidebar } from "@/components/Sidebar";
 
-interface WeightLog { id: number; weight: number; logDate: string; }
+interface WeightLog { id: number; weightKg: number; logDate: string; }
 
 /* ── Full sparkline chart ─────────────────────── */
 function WeightChart({ logs }: { logs: WeightLog[] }) {
   const data = [...logs].reverse(); // chronological order
-  const values = data.map(l => l.weight);
+  const values = data.map(l => l.weightKg);
   if (values.length < 2) return (
     <div className="flex flex-col items-center justify-center h-28 text-gray-300 gap-2">
       <span className="text-2xl">📈</span>
@@ -25,7 +25,7 @@ function WeightChart({ logs }: { logs: WeightLog[] }) {
   const toX = (i: number) => PX + (i / (data.length - 1)) * (W - PX * 2);
   const toY = (v: number) => PY + (1 - (v - min) / range) * (H - PY * 2);
 
-  const pts = data.map((d, i) => ({ x: toX(i), y: toY(d.weight) }));
+  const pts = data.map((d, i) => ({ x: toX(i), y: toY(d.weightKg) }));
   let line = `M${pts[0].x} ${pts[0].y}`;
   for (let i = 1; i < pts.length; i++) {
     const mx = (pts[i - 1].x + pts[i].x) / 2;
@@ -96,7 +96,7 @@ export default function WeightLogsPage() {
     if (!weight) return;
     setSaving(true); setError("");
     try {
-      const entry = await api.post<WeightLog>("/api/weight-logs", { weight: parseFloat(weight), logDate: new Date().toISOString().split("T")[0] });
+      const entry = await api.post<WeightLog>("/api/weight-logs", { weightKg: parseFloat(weight), logDate: new Date().toISOString().split("T")[0] });
       setLogs([entry, ...logs]);
       setWeight("");
       setJustSaved(true);
@@ -108,7 +108,7 @@ export default function WeightLogsPage() {
 
   if (!mounted) return null;
 
-  const values = logs.map(l => l.weight);
+  const values = logs.map(l => l.weightKg);
   const minW = values.length ? Math.min(...values) : null;
   const maxW = values.length ? Math.max(...values) : null;
   const diffRaw = values.length >= 2 ? values[0] - values[values.length - 1] : null;
@@ -221,7 +221,7 @@ export default function WeightLogsPage() {
                 <div className="divide-y" style={{ borderColor:"rgba(139,92,246,0.06)" }}>
                   {logs.map((log, i) => {
                     const prev = logs[i + 1];
-                    const delta = prev ? (log.weight - prev.weight).toFixed(1) : null;
+                    const delta = prev ? (log.weightKg - prev.weightKg).toFixed(1) : null;
                     return (
                       <div key={log.id}
                         className="anim-fade-in-up flex items-center justify-between px-6 py-3.5 hover:bg-gray-50/80 transition"
@@ -240,7 +240,7 @@ export default function WeightLogsPage() {
                               {parseFloat(delta) > 0 ? "+" : ""}{delta}
                             </span>
                           )}
-                          <p className={`text-sm font-bold ${i === 0 ? "text-violet-700" : "text-gray-700"}`}>{log.weight} kg</p>
+                          <p className={`text-sm font-bold ${i === 0 ? "text-violet-700" : "text-gray-700"}`}>{log.weightKg} kg</p>
                         </div>
                       </div>
                     );

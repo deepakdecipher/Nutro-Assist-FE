@@ -8,7 +8,7 @@ import { clearAuth, isAuthenticated, api } from "@/lib/api";
 import { Sidebar } from "@/components/Sidebar";
 
 interface DietPlan { id: number; planStatus: string; planType: string; startDate: string; }
-interface WeightLog { id: number; weight: number; logDate: string; }
+interface WeightLog { id: number; weightKg: number; logDate: string; }
 
 /* ── Mini sparkline ─────────────────────────────── */
 function MiniSparkline({ values, color = "#7c3aed" }: { values: number[]; color?: string }) {
@@ -116,13 +116,13 @@ export default function DashboardPage() {
     },
     {
       label: "Current Weight",
-      value: weightLogs.length > 0 ? `${weightLogs[0].weight} kg` : "—",
+      value: weightLogs.length > 0 ? `${weightLogs[0].weightKg} kg` : "—",
       sub: `${weightLogs.length} entries`,
       icon: "⚖️",
       gradient: "linear-gradient(135deg,#2563eb,#0ea5e9)",
       shadow: "rgba(37,99,235,0.3)",
       badge: "bg-blue-100 text-blue-700",
-      spark: weightLogs.length >= 2 ? weightLogs.slice(0,8).reverse().map(l => l.weight) : null,
+      spark: weightLogs.length >= 2 ? weightLogs.slice(0,8).reverse().map(l => l.weightKg) : null,
     },
     {
       label: "AI Coach",
