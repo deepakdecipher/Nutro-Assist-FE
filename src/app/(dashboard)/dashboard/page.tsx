@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { clearAuth, isAuthenticated, api } from "@/lib/api";
@@ -70,11 +71,26 @@ export default function DashboardPage() {
   const [weightLogs, setWeightLogs] = useState<WeightLog[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [tipIdx] = useState(() => Math.floor(Math.random() * TIPS.length));
+  const [userInitial, setUserInitial] = useState("U");
+  const [userName, setUserName] = useState("");
+  const [avatarOpen, setAvatarOpen] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 });
+  const avatarBtnRef = useRef<HTMLButtonElement>(null);
   const greeting = getGreeting();
 
   useEffect(() => {
     setMounted(true);
     if (!isAuthenticated()) { router.replace("/login"); return; }
+    try {
+      const token = localStorage.getItem("token");
+      if (token) {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        const sub: string = payload.sub || payload.name || payload.email || "";
+        const letter = sub.trim().charAt(0).toUpperCase();
+        if (letter) setUserInitial(letter);
+        setUserName(sub.trim());
+      }
+    } catch { /* keep default "U" */ }
     Promise.all([
       api.get<DietPlan[]>("/api/diet-plans/history").catch(() => []),
       api.get<WeightLog[]>("/api/weight-logs").catch(() => []),
@@ -163,18 +179,50 @@ export default function DashboardPage() {
               </svg>
               <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-pink-500 border border-white" />
             </button>
-            {/* Avatar with gradient ring */}
-            <div className="relative w-9 h-9 flex-shrink-0">
-              <div className="absolute inset-0 rounded-full spin-slow" style={{ background: "conic-gradient(#7c3aed,#ec4899,#0ea5e9,#7c3aed)", padding: "2px" }} />
-              <div className="absolute inset-[2px] rounded-full bg-white flex items-center justify-center">
-                <div className="w-full h-full rounded-full flex items-center justify-center text-white text-xs font-bold"
-                  style={{ background: "linear-gradient(135deg,#7c3aed,#9333ea)" }}>U</div>
-              </div>
+            {/* Avatar — portal renders dropdown in document.body, escaping header's backdrop-filter compositing layer */}
+            <div className="relative">
+              <button
+                ref={avatarBtnRef}
+                type="button"
+                onClick={() => {
+                  if (!avatarOpen && avatarBtnRef.current) {
+                    const r = avatarBtnRef.current.getBoundingClientRect();
+                    setDropdownPos({ top: r.bottom + 8, right: window.innerWidth - r.right });
+                  }
+                  setAvatarOpen((v) => !v);
+                }}
+                className="relative w-9 h-9 flex-shrink-0 focus:outline-none"
+                title={userName || "Profile"}>
+                <div className="absolute inset-0 rounded-full spin-slow" style={{ background: "conic-gradient(#7c3aed,#ec4899,#0ea5e9,#7c3aed)", padding: "2px" }} />
+                <div className="absolute inset-[2px] rounded-full bg-white flex items-center justify-center">
+                  <div className="w-full h-full rounded-full flex items-center justify-center text-white text-xs font-bold"
+                    style={{ background: "linear-gradient(135deg,#7c3aed,#9333ea)" }}>{userInitial}</div>
+                </div>
+              </button>
+              {avatarOpen && createPortal(
+                <>
+                  <div className="fixed inset-0 z-[9998]" onClick={() => setAvatarOpen(false)} />
+                  <div
+                    className="fixed z-[9999] w-52 rounded-2xl border border-slate-100 bg-white py-1 shadow-xl"
+                    style={{ top: dropdownPos.top, right: dropdownPos.right }}>
+                    <div className="border-b border-slate-100 px-4 py-2.5">
+                      <p className="text-xs text-slate-400 font-medium">Signed in as</p>
+                      <p className="mt-0.5 truncate text-sm font-bold text-slate-800">{userName || "User"}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setAvatarOpen(false); clearAuth(); router.push("/login"); }}
+                      className="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 transition">
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                      </svg>
+                      Sign out
+                    </button>
+                  </div>
+                </>,
+                document.body
+              )}
             </div>
-            <button onClick={() => { clearAuth(); router.push("/login"); }}
-              className="hidden sm:flex items-center gap-1.5 text-xs text-gray-400 hover:text-red-500 transition px-3 py-1.5 rounded-full hover:bg-red-50">
-              Sign out
-            </button>
           </div>
         </header>
 

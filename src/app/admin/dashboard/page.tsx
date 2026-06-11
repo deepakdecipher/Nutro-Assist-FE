@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { api, clearAdminAuth, getSavedAdminRoles, isAdminAuthenticated } from "@/lib/api";
+import { AdminSidebar } from "@/components/AdminSidebar";
 
 type UserView = "all" | "admins" | "regular";
 type SortValue = "createdAt,desc" | "createdAt,asc" | "name,asc" | "name,desc";
@@ -257,11 +258,9 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950">
-      <Sidebar
+      <AdminSidebar
         collapsed={sidebarCollapsed}
-        activeView={activeView}
-        onCollapse={() => setSidebarCollapsed((value) => !value)}
-        onUsers={(view) => setActiveView(view)}
+        onCollapse={() => setSidebarCollapsed((v) => !v)}
       />
 
       <div className={`min-h-screen transition-all duration-300 ${sidebarCollapsed ? "lg:pl-20" : "lg:pl-72"}`}>
@@ -387,89 +386,8 @@ export default function AdminDashboard() {
   );
 }
 
-function Sidebar({
-  collapsed,
-  activeView,
-  onCollapse,
-  onUsers,
-}: {
-  collapsed: boolean;
-  activeView: UserView;
-  onCollapse: () => void;
-  onUsers: (view: UserView) => void;
-}) {
-  return (
-    <aside className={`fixed inset-y-0 left-0 z-30 hidden flex-col bg-[#121244] text-white shadow-2xl shadow-violet-950/20 transition-all duration-300 lg:flex ${collapsed ? "w-20" : "w-72"}`}>
-      <div className="flex h-16 items-center gap-3 px-5">
-        <Image src="/nutro-assist-logo.svg" alt="Nutro Assist" width={34} height={34} className="h-9 w-9 rounded-xl object-cover" priority />
-        {!collapsed && <span className="text-sm font-bold">Nutro Assist</span>}
-      </div>
-      <nav className="flex-1 space-y-5 overflow-y-auto px-4 pb-4">
-        <SidebarButton label="Dashboard" icon="▦" active={activeView === "all"} collapsed={collapsed} onClick={() => onUsers("all")} />
-        <div>
-          {!collapsed && <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Administration</p>}
-          <div className="space-y-1">
-            <SidebarButton
-              label="Users"
-              icon="👥"
-              active={activeView !== "admins" && activeView !== "regular"}
-              collapsed={collapsed}
-              onClick={() => onUsers("all")}
-            />
-          </div>
-        </div>
-
-        <div>
-          {!collapsed && <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">AI & Content</p>}
-          <div className="space-y-1">
-            <Link
-              href="/admin/knowledge"
-              className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-sm font-semibold transition text-slate-300 hover:bg-white/10 hover:text-white">
-              <span className="w-5 text-center text-xs">🧠</span>
-              {!collapsed && <span className="truncate">Knowledge Base</span>}
-            </Link>
-          </div>
-        </div>
-
-        <div>
-          {!collapsed && <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Application</p>}
-          <div className="space-y-1">
-            <Link
-              href="/dashboard"
-              className={`flex h-10 w-full items-center gap-3 rounded-xl px-3 text-sm font-semibold transition bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 hover:text-emerald-200`}>
-              <span className="w-5 text-center text-xs">🚀</span>
-              {!collapsed && (
-                <span className="flex flex-1 items-center justify-between truncate">
-                  View App
-                  <svg className="h-3 w-3 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </span>
-              )}
-            </Link>
-          </div>
-        </div>
-      </nav>
-      <button type="button" onClick={onCollapse} className="m-4 rounded-xl px-3 py-2 text-left text-xs font-semibold text-slate-300 transition hover:bg-white/10">
-        {collapsed ? "→" : "↔ Collapse"}
-      </button>
-    </aside>
-  );
-}
-
-function SidebarButton({ label, icon, active, collapsed, onClick }: { label: string; icon: string; active?: boolean; collapsed: boolean; onClick?: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex h-10 w-full items-center gap-3 rounded-xl px-3 text-sm font-semibold transition ${active ? "bg-violet-600 text-white shadow-lg shadow-violet-950/25" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}>
-      <span className="w-5 text-center text-xs">{icon}</span>
-      {!collapsed && <span className="truncate">{label}</span>}
-    </button>
-  );
-}
-
 function Topbar({ search, onSearch, onSignOut }: { search: string; onSearch: (value: string) => void; onSignOut: () => void }) {
+  const [profileOpen, setProfileOpen] = useState(false);
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
       <div className="flex items-center justify-between gap-4">
@@ -489,14 +407,32 @@ function Topbar({ search, onSearch, onSignOut }: { search: string; onSearch: (va
             🔔
             <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" />
           </button>
-          <button type="button" onClick={onSignOut} className="flex items-center gap-3 rounded-xl px-2 py-1.5 transition hover:bg-slate-50">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-500 text-sm font-bold text-white">A</span>
-            <span className="hidden text-left sm:block">
-              <span className="block text-sm font-bold text-slate-800">Administrator</span>
-              <span className="block text-xs text-slate-500">Super Admin</span>
-            </span>
-            <span className="text-slate-400">⌄</span>
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setProfileOpen((v) => !v)}
+              className="flex items-center gap-3 rounded-xl px-2 py-1.5 transition hover:bg-slate-50">
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-500 text-sm font-bold text-white">A</span>
+              <span className="hidden text-left sm:block">
+                <span className="block text-sm font-bold text-slate-800">Administrator</span>
+                <span className="block text-xs text-slate-500">Super Admin</span>
+              </span>
+              <span className="text-slate-400">⌄</span>
+            </button>
+            {profileOpen && (
+              <div className="absolute right-0 top-full z-50 mt-1 w-44 rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+                <button
+                  type="button"
+                  onClick={() => { setProfileOpen(false); onSignOut(); }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  </svg>
+                  Sign out
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </header>
