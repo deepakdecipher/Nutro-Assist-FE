@@ -5,7 +5,7 @@ function getToken(): string | null {
   return localStorage.getItem("token") ?? localStorage.getItem("adminToken");
 }
 
-function getAdminToken(): string | null {
+export function getAdminToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("adminToken") ?? localStorage.getItem("token");
 }
@@ -50,6 +50,8 @@ export const api = {
   adminGet: <T>(path: string) => request<T>(path, {}, true),
   adminPost: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "POST", body: JSON.stringify(body) }, true),
+  adminDelete: <T>(path: string) =>
+    request<T>(path, { method: "DELETE" }, true),
 };
 
 // ── Regular user auth ─────────────────────────────────────────────────────

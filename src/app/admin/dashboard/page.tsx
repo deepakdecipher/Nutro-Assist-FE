@@ -420,6 +420,18 @@ function Sidebar({
         </div>
 
         <div>
+          {!collapsed && <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">AI & Content</p>}
+          <div className="space-y-1">
+            <Link
+              href="/admin/knowledge"
+              className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-sm font-semibold transition text-slate-300 hover:bg-white/10 hover:text-white">
+              <span className="w-5 text-center text-xs">🧠</span>
+              {!collapsed && <span className="truncate">Knowledge Base</span>}
+            </Link>
+          </div>
+        </div>
+
+        <div>
           {!collapsed && <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Application</p>}
           <div className="space-y-1">
             <Link
