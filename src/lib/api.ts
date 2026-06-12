@@ -1,5 +1,27 @@
 const BASE = "/backend";
 
+export class SessionExpiredError extends Error {
+  constructor() {
+    super("Session expired. Please log in again.");
+    this.name = "SessionExpiredError";
+  }
+}
+
+/** Proactively refresh the access token if it expires within the next 90 seconds. */
+export async function ensureFreshToken(): Promise<void> {
+  const token = getToken();
+  if (!token) return;
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+    if (typeof payload.exp !== "number") return;
+    if (payload.exp * 1000 - Date.now() < 90_000) {
+      await tryRefresh();
+    }
+  } catch { /* ignore — proceed with current token */ }
+}
+
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("token") ?? localStorage.getItem("adminToken");
@@ -56,7 +78,8 @@ async function fetchWithBody(url: string, options: RequestInit & { headers: Reco
 async function request<T>(
   path: string,
   options: RequestInit = {},
-  useAdminToken = false
+  useAdminToken = false,
+  noAutoRedirect = false
 ): Promise<T> {
   const buildHeaders = (): Record<string, string> => {
     const token = useAdminToken ? getAdminToken() : getToken();
@@ -75,8 +98,8 @@ async function request<T>(
     try {
       await tryRefresh();
     } catch {
-      redirectToLogin();
-      throw new Error("Session expired. Please log in again.");
+      if (!noAutoRedirect) redirectToLogin();
+      throw new SessionExpiredError();
     }
     ({ res, data } = await fetchWithBody(`${BASE}${path}`, { ...options, headers: buildHeaders() }));
   }
@@ -92,8 +115,10 @@ async function request<T>(
       typeof data === "object"
         ? data.message || data.error || fallback
         : (data as string) || fallback;
-    // If the retry also returned 401, the refresh token itself is expired
-    if (res.status === 401) redirectToLogin();
+    if (res.status === 401) {
+      if (!noAutoRedirect) redirectToLogin();
+      throw new SessionExpiredError();
+    }
     throw new Error(msg);
   }
   return data as T;
@@ -102,6 +127,10 @@ async function request<T>(
 export const api = {
   post: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "POST", body: JSON.stringify(body) }),
+  // Long-running POST (e.g. AI generation): never auto-redirects to login on 401.
+  // Throws SessionExpiredError instead — caller decides how to handle it.
+  postLong: <T>(path: string, body: unknown) =>
+    request<T>(path, { method: "POST", body: JSON.stringify(body) }, false, true),
   get: <T>(path: string) => request<T>(path),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   adminGet: <T>(path: string) => request<T>(path, {}, true),

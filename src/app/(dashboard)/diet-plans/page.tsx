@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { isAuthenticated, api } from "@/lib/api";
+import { isAuthenticated, api, SessionExpiredError, ensureFreshToken } from "@/lib/api";
 import { Sidebar } from "@/components/Sidebar";
 
 // ── Types ────────────────────────────────────────────────────
@@ -33,6 +33,7 @@ interface PlanDay {
 
 interface WeekView {
   planId: number;
+  planName: string;
   planType: string;
   planStatus: string;
   dailyCalorieTarget: number;
@@ -40,6 +41,13 @@ interface WeekView {
   endDate: string;
   todayConsumedCalories: number;
   week: PlanDay[];
+}
+
+interface TemplateSummary {
+  id: number;
+  name: string;
+  goal: string;
+  totalDays: number;
 }
 
 // ── Meal metadata ────────────────────────────────────────────
@@ -88,19 +96,24 @@ function MealCard({
     gradient: "linear-gradient(135deg,#6b7280,#9ca3af)", shadow: "rgba(107,114,128,0.2)",
   };
   const [logging, setLogging] = useState(false);
+  const [logError, setLogError] = useState("");
 
   async function handleLog() {
     if (meal.isLogged || logging) return;
     setLogging(true);
+    setLogError("");
     try {
-      await api.post("/api/food-logs", {
+      await ensureFreshToken();
+      await api.postLong("/api/food-logs", {
         planDayId: dayId,
         planMealId: meal.planMealId,
-        consumedCalories: meal.plannedCalories,
       });
       onLogged(meal.planMealId);
-    } catch {
-      // silent — user can retry
+    } catch (err) {
+      if (err instanceof SessionExpiredError) {
+        setLogError("Session expired. Please log in again.");
+      }
+      // other errors: silent — user can retry
     } finally {
       setLogging(false);
     }
@@ -149,26 +162,46 @@ function MealCard({
           <span className="text-[10px] text-gray-400">C: {meal.carbsG.toFixed(0)}g</span>
           <span className="text-[10px] text-gray-400">F: {meal.fatG.toFixed(0)}g</span>
         </div>
+        {logError && (
+          <p className="text-[11px] text-red-500 font-semibold mt-1">{logError}</p>
+        )}
       </div>
     </div>
   );
 }
 
 // ── Main page ─────────────────────────────────────────────────
+const GOAL_META: Record<string, { label: string; icon: string; color: string; border: string; gradient: string }> = {
+  WEIGHT_LOSS:     { label: "Weight Loss",     icon: "🔥", color: "#dc2626", border: "rgba(220,38,38,0.2)",   gradient: "linear-gradient(135deg,#dc2626,#ef4444)" },
+  MAINTAIN_WEIGHT: { label: "Balanced",        icon: "⚖️", color: "#0891b2", border: "rgba(8,145,178,0.2)",   gradient: "linear-gradient(135deg,#0891b2,#06b6d4)" },
+  MUSCLE_BUILDING: { label: "Muscle Building", icon: "💪", color: "#16a34a", border: "rgba(22,163,74,0.2)",   gradient: "linear-gradient(135deg,#16a34a,#22c55e)" },
+};
+
 export default function DietPlansPage() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [pageState, setPageState] = useState<"loading" | "no-plan" | "generating" | "week-view">("loading");
+  const [pageState, setPageState] = useState<"loading" | "no-plan" | "generating" | "assigning" | "week-view">("loading");
   const [weekData, setWeekData] = useState<WeekView | null>(null);
   const [selectedDayIdx, setSelectedDayIdx] = useState(0);
   const [error, setError] = useState("");
+  const [templates, setTemplates] = useState<TemplateSummary[]>([]);
 
   useEffect(() => {
     setMounted(true);
     if (!isAuthenticated()) { router.replace("/login"); return; }
     loadActivePlan();
+    loadTemplates();
   }, [router]);
+
+  async function loadTemplates() {
+    try {
+      const list = await api.get<TemplateSummary[]>("/api/diet-plans/templates");
+      setTemplates(Array.isArray(list) ? list : []);
+    } catch (err) {
+      console.error("Failed to load templates:", err);
+    }
+  }
 
   async function loadActivePlan() {
     setPageState("loading");
@@ -196,10 +229,27 @@ export default function DietPlansPage() {
     setPageState("generating");
     setError("");
     try {
-      const data = await api.post<WeekView>("/api/diet-plans/generate", {});
+      await ensureFreshToken();
+      const data = await api.postLong<WeekView>("/api/diet-plans/generate", {});
       applyWeekData(data);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to generate plan. Please try again.");
+      if (err instanceof SessionExpiredError) {
+        setError("Your session expired while generating the plan. Please log in again and retry.");
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to generate plan. Please try again.");
+      }
+      setPageState("no-plan");
+    }
+  }
+
+  async function handleAssignTemplate(templateId: number) {
+    setPageState("assigning");
+    setError("");
+    try {
+      const data = await api.post<WeekView>(`/api/diet-plans/assign/${templateId}`, {});
+      applyWeekData(data);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to assign plan. Please try again.");
       setPageState("no-plan");
     }
   }
@@ -247,7 +297,7 @@ export default function DietPlansPage() {
             <span className={`text-[10px] font-bold px-3 py-1.5 rounded-full ${
               weekData.planStatus === "ACTIVE" ? "bg-violet-100 text-violet-700" : "bg-gray-100 text-gray-500"
             }`}>
-              {weekData.planType === "AI_GENERATED" ? "🤖 AI Plan" : "👨‍⚕️ Nutritionist"} · {weekData.planStatus}
+              {weekData.planType === "AI_GENERATED" ? "🤖" : "👨‍⚕️"} {weekData.planName} · {weekData.planStatus}
             </span>
           )}
         </header>
@@ -262,17 +312,23 @@ export default function DietPlansPage() {
               </div>
             )}
 
-            {/* Generating AI plan */}
-            {pageState === "generating" && (
+            {/* Generating / Assigning plan */}
+            {(pageState === "generating" || pageState === "assigning") && (
               <div className="anim-scale-in flex flex-col items-center justify-center py-24 text-center">
                 <div className="relative w-20 h-20 mb-6">
                   <div className="absolute inset-0 rounded-full border-4 border-violet-100" />
                   <div className="absolute inset-0 rounded-full border-4 border-t-violet-600 animate-spin" />
-                  <div className="absolute inset-0 flex items-center justify-center text-3xl">🤖</div>
+                  <div className="absolute inset-0 flex items-center justify-center text-3xl">
+                    {pageState === "assigning" ? "📋" : "🤖"}
+                  </div>
                 </div>
-                <h2 className="text-xl font-extrabold text-gray-900 mb-2">Crafting your plan…</h2>
+                <h2 className="text-xl font-extrabold text-gray-900 mb-2">
+                  {pageState === "assigning" ? "Setting up your plan…" : "Crafting your plan…"}
+                </h2>
                 <p className="text-sm text-gray-400 max-w-xs leading-relaxed">
-                  Our AI is building a 30-day personalized nutrition plan. This takes about 30 seconds.
+                  {pageState === "assigning"
+                    ? "Preparing your nutritionist-designed meal plan."
+                    : "Our AI is building a 30-day personalized nutrition plan. This takes about 30 seconds."}
                 </p>
                 <div className="mt-6 flex gap-1">
                   {[0, 1, 2].map(i => (
@@ -332,6 +388,42 @@ export default function DietPlansPage() {
                     <div className="mt-4 text-xs font-bold text-blue-600 group-hover:translate-x-0.5 transition-transform">Go to assessment →</div>
                   </Link>
                 </div>
+
+                {/* Nutritionist sheet plans */}
+                {templates.length > 0 && (
+                  <div className="mt-2">
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Nutritionist Plans</p>
+                    <div className="grid grid-cols-1 gap-3">
+                      {templates.map((t, i) => {
+                        const meta = GOAL_META[t.goal] ?? { label: t.goal, icon: "📋", color: "#7c3aed", border: "rgba(124,58,237,0.2)", gradient: "linear-gradient(135deg,#7c3aed,#9333ea)" };
+                        return (
+                          <button key={t.id} onClick={() => handleAssignTemplate(t.id)}
+                            className="anim-fade-in-up group relative overflow-hidden rounded-2xl border p-5 text-left bg-white hover:-translate-y-0.5 hover:shadow-lg transition-all duration-200"
+                            style={{ borderColor: meta.border, boxShadow: "0 1px 4px rgba(0,0,0,0.04)", animationDelay: `${(i + 3) * 50}ms` }}>
+                            <div className="flex items-center gap-4">
+                              <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
+                                style={{ background: meta.gradient, boxShadow: `0 4px 10px -2px ${meta.border}` }}>
+                                {meta.icon}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-bold text-gray-900 truncate">{t.name}</p>
+                                  <span className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full"
+                                    style={{ background: `${meta.color}18`, color: meta.color }}>
+                                    {meta.label}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-gray-400">{t.totalDays}-day nutritionist-designed meal plan</p>
+                              </div>
+                              <div className="text-xs font-bold group-hover:translate-x-0.5 transition-transform flex-shrink-0"
+                                style={{ color: meta.color }}>→</div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
