@@ -113,6 +113,7 @@ export default function DashboardPage() {
       shadow: "rgba(124,58,237,0.35)",
       badge: "bg-violet-100 text-violet-700",
       spark: null,
+      href: "/diet-plans",
     },
     {
       label: "Current Weight",
@@ -123,6 +124,7 @@ export default function DashboardPage() {
       shadow: "rgba(37,99,235,0.3)",
       badge: "bg-blue-100 text-blue-700",
       spark: weightLogs.length >= 2 ? weightLogs.slice(0,8).reverse().map(l => l.weightKg) : null,
+      href: "/weight-logs",
     },
     {
       label: "AI Coach",
@@ -133,6 +135,7 @@ export default function DashboardPage() {
       shadow: "rgba(219,39,119,0.3)",
       badge: "bg-pink-100 text-pink-700",
       spark: null,
+      href: "/ai-chat",
     },
     {
       label: "Day Streak",
@@ -143,6 +146,7 @@ export default function DashboardPage() {
       shadow: "rgba(234,88,12,0.3)",
       badge: "bg-orange-100 text-orange-700",
       spark: null,
+      href: "/weight-logs",
     },
   ];
 
@@ -264,8 +268,8 @@ export default function DashboardPage() {
               {loadingData
                 ? Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
                 : stats.map((s, i) => (
-                    <div key={s.label}
-                      className={`anim-fade-in-up ${STAGGER[i]} bg-white rounded-2xl border p-5 transition-all duration-200 hover:-translate-y-1 hover:shadow-lg cursor-default`}
+                    <Link key={s.label} href={s.href}
+                      className={`anim-fade-in-up ${STAGGER[i]} bg-white rounded-2xl border p-5 transition-all duration-200 hover:-translate-y-1 hover:shadow-lg cursor-pointer block`}
                       style={{ borderColor:"rgba(139,92,246,0.07)", boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
                       <div className="flex items-start justify-between mb-4">
                         <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
@@ -280,7 +284,7 @@ export default function DashboardPage() {
                       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">{s.label}</p>
                       <p className="text-xl font-extrabold text-gray-900 truncate">{s.value}</p>
                       {s.spark && <p className="text-[10px] text-gray-400 mt-0.5">{s.sub}</p>}
-                    </div>
+                    </Link>
                   ))
               }
             </div>
