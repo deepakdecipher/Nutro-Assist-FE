@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
-import { api, getUserId, isAuthenticated } from "@/lib/api";
+import { api, isAuthenticated } from "@/lib/api";
 import { Sidebar } from "@/components/Sidebar";
 
 interface FoodItem {
@@ -34,16 +34,11 @@ interface DaySchedule {
 
 interface DietPlan {
   id: number;
-  planName: string;
-  dailyCalories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-  status: string;
   planType: string | null;
+  planStatus: string;
+  dailyCalorieTarget: number;
   startDate: string | null;
   endDate: string | null;
-  active: boolean;
 }
 
 const SLOT_ICONS: Record<string, string> = {
@@ -93,12 +88,10 @@ export default function DietPlanSchedulePage() {
   useEffect(() => {
     setMounted(true);
     if (!isAuthenticated()) { router.replace("/login"); return; }
-    const userId = getUserId();
-    if (!userId) { setLoading(false); return; }
 
     (async () => {
       try {
-        const plans = await api.get<DietPlan[]>(`/api/diet-plans/user/${userId}`);
+        const plans = await api.get<DietPlan[]>(`/api/diet-plans/history`);
         const found = plans.find(p => String(p.id) === planId);
         if (found) setPlan(found);
       } catch { /* plan metadata unavailable */ }
@@ -130,17 +123,17 @@ export default function DietPlanSchedulePage() {
               <div className="flex items-center gap-2">
                 <Link href="/diet-plans" className="text-xs text-gray-400 hover:text-violet-600 transition">Diet Plans</Link>
                 <span className="text-gray-300 text-xs">›</span>
-                <span className="text-xs font-semibold text-gray-700">{plan?.planName ?? "30-Day Schedule"}</span>
+                <span className="text-xs font-semibold text-gray-700">30-Day Schedule</span>
               </div>
               <p className="text-xs text-gray-400 hidden sm:block">
-                Day {day} of 30 · {plan?.dailyCalories ?? "—"} kcal/day
+                Day {day} of 30 · {plan?.dailyCalorieTarget ?? "—"} kcal/day
                 {plan?.startDate ? ` · ${new Date(plan.startDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – ${new Date(plan.endDate!).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : ""}
               </p>
             </div>
           </div>
           {plan && (
-            <span className={`text-[10px] font-bold px-3 py-1.5 rounded-full ${plan.planType === "AI_PLAN" ? "bg-violet-100 text-violet-700" : "bg-green-100 text-green-700"}`}>
-              {plan.planType === "AI_PLAN" ? "✨ AI Plan" : "Free Plan"}
+            <span className={`text-[10px] font-bold px-3 py-1.5 rounded-full ${plan.planType === "AI_GENERATED" ? "bg-violet-100 text-violet-700" : "bg-green-100 text-green-700"}`}>
+              {plan.planType === "AI_GENERATED" ? "✨ AI Plan" : "Free Plan"}
             </span>
           )}
         </header>
@@ -174,17 +167,10 @@ export default function DietPlanSchedulePage() {
                 {plan && (
                   <div className="mx-3 mb-3 rounded-xl p-3 space-y-2" style={{ background: "linear-gradient(135deg,#f5f3ff,#ede9fe)" }}>
                     <p className="text-[10px] font-bold text-violet-500 uppercase tracking-widest">Daily Targets</p>
-                    {[
-                      { label: "Calories", value: `${plan.dailyCalories} kcal`, color: "#7c3aed" },
-                      { label: "Protein",  value: `${plan.protein} g`,         color: "#2563eb" },
-                      { label: "Carbs",    value: `${plan.carbs} g`,           color: "#059669" },
-                      { label: "Fat",      value: `${plan.fat} g`,             color: "#ea580c" },
-                    ].map(m => (
-                      <div key={m.label} className="flex justify-between items-center">
-                        <span className="text-xs text-gray-500">{m.label}</span>
-                        <span className="text-xs font-bold" style={{ color: m.color }}>{m.value}</span>
-                      </div>
-                    ))}
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-500">Calories</span>
+                      <span className="text-xs font-bold" style={{ color: "#7c3aed" }}>{plan.dailyCalorieTarget} kcal</span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -294,17 +280,10 @@ export default function DietPlanSchedulePage() {
                         {plan && (
                           <div className="mt-6 w-full max-w-xs rounded-xl p-4 bg-white/80 border text-left space-y-2" style={{ borderColor: "rgba(139,92,246,0.1)" }}>
                             <p className="text-[10px] font-bold text-violet-500 uppercase tracking-widest mb-3">Your Daily Targets</p>
-                            {[
-                              { label: "Calories", value: `${plan.dailyCalories} kcal`, color: "#7c3aed" },
-                              { label: "Protein",  value: `${plan.protein} g`,         color: "#2563eb" },
-                              { label: "Carbs",    value: `${plan.carbs} g`,           color: "#059669" },
-                              { label: "Fat",      value: `${plan.fat} g`,             color: "#ea580c" },
-                            ].map(m => (
-                              <div key={m.label} className="flex justify-between items-center">
-                                <span className="text-xs text-gray-500">{m.label}</span>
-                                <span className="text-xs font-bold" style={{ color: m.color }}>{m.value}</span>
-                              </div>
-                            ))}
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs text-gray-500">Calories</span>
+                              <span className="text-xs font-bold" style={{ color: "#7c3aed" }}>{plan.dailyCalorieTarget} kcal</span>
+                            </div>
                           </div>
                         )}
                         <Link href="/subscriptions"
