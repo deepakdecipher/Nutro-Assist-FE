@@ -1,5 +1,5 @@
 const TEN_MINUTES = 10 * 60 * 1000;
-const DEFAULT_FRONTEND_URL = "https://nutro-assist-fe.onrender.com";
+const DEFAULT_FRONTEND_URL = "https://nutro-assist.vercel.app";
 
 declare global {
   // eslint-disable-next-line no-var

@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/backend/:path*",
-        destination: `${process.env.BACKEND_URL || "https://nutro-assist.onrender.com"}/:path*`,
+        destination: `${(process.env.BACKEND_URL || "https://nutro-assist.vercel.app").replace(/\/$/, "")}/:path*`,
       },
     ];
   },
